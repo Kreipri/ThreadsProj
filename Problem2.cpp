@@ -63,6 +63,8 @@ void deviceControl();
 void concurrencyControl();
 void livenessCheck();
 
+int getCh();
+
 //Main
 int main(){
     //Main Menu
@@ -82,37 +84,62 @@ void mainMenu(){
         cout<<"0 - Exit"<<endl;
         cout<<"==============================="<<endl;
         cout<<"Enter Choice: ";
-        cin>>ch;
-        if(cin.fail() || (ch < 5 && ch > 0)){
-            cin.clear();
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cout<<"Invalid input. Please choose between the numbers listed."<<endl;
+        ch = getCh();
+        if(ch == NULL){
             continue;
         }
+        
         switch(ch){
             case 1: 
                 break;
-            case 2: 
-                break;
+            case 2: deviceManagement(); break;
             case 3: 
                 break;
             case 4: 
                 break;
         }
-
-
-
     }
-    void simulateThreads();
-    void deviceManagement(){
-      //cout<<"====== Smart Home System ======"<<endl;
+}
+
+//void simulateThreads();
+void deviceManagement(){
+    int ch;
+    while(true){
         cout<<"====== Device Management ======"<<endl;
-        cout<<""
+        cout<<"1 - Add Devices"<<endl;
+        cout<<"2 - Remove Devices"<<endl;
+        cout<<"3 - Device List"<<endl;
+        cout<<"0 - Back"<<endl;
         cout<<"==============================="<<endl;
-    }
-    void userManagement();
-    void deviceControl();
-    void concurrencyControl();
-    void livenessCheck();
+        cout<<"Enter Choice: ";
+        ch = getCh();
+        if(ch == NULL){
+            continue;
+        }
 
+        switch(ch){
+            case 1: break;
+            case 2: break;
+            case 3: break;
+            case 0: return; break;
+            default:
+        }
+    }
+
+}
+// void userManagement();
+// void deviceControl();
+// void concurrencyControl();
+// void livenessCheck();
+
+int getCh(){
+    int ch;
+    cin>>ch;
+    if(cin.fail() || (ch < 5 && ch > 0)){
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        cout<<"Invalid input. Please choose between the numbers listed."<<endl;
+        return NULL;
+    }
+    return ch;
 }
