@@ -46,7 +46,6 @@ class Light : public Device {
 
 struct User {
     string user;
-    string pass;
     bool isLoggedIn = 0;
 };
 
@@ -108,7 +107,7 @@ void deviceManagement(){
         cout<<"====== Device Management ======"<<endl;
         cout<<"1 - Add Devices"<<endl;
         cout<<"2 - Remove Devices"<<endl;
-        cout<<"3 - Device List"<<endl;
+        cout<<"3 - Manage Devices"<<endl;
         cout<<"0 - Back"<<endl;
         cout<<"==============================="<<endl;
         cout<<"Enter Choice: ";
@@ -117,10 +116,15 @@ void deviceManagement(){
             continue;
         }
 
-        switch(ch){
+        switch(ch){ //Add choices here
             case 1: break;
+                //Output:
+                //Enter Device ID: (make sure its unique, or just automatically set an id)
+                //Enter Device Type: (Thermostat, Fridge or Light)
             case 2: break;
+                //Show device list, make user choose which to remove
             case 3: break;
+                //Show device list, make user choose which to modify settings, call deviceControl() menu
             case 0: return; break;
             default:
         }
@@ -128,7 +132,18 @@ void deviceManagement(){
 
 }
 // void userManagement();
+    // ==== User Management ====
+    // Add Users (add username)
+    // User List (show user list)
+    // Remove Users (cant remove user if user is logged in)
 // void deviceControl();
+    // === Device Control ==== 
+    // Turn on
+    // Turn off
+    // Adjust device settings (temp, brightness, etc)
+    // Check device status (call showStatus() of device)
+
+
 // void concurrencyControl();
 // void livenessCheck();
 
