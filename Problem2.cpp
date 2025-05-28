@@ -2,6 +2,8 @@
 #include <thread>
 #include <mutex>
 #include <chrono>
+#include <vector>
+#include <random>
 
 using namespace std;
 
@@ -15,8 +17,8 @@ class Device {
             this->id = id;
             isOn = false;
         }
-        virtual void turnOn(){
-            isOn = true;
+        virtual void turnOn(bool b){
+            isOn = b;
         }
         virtual void showStatus() = 0;
         virtual ~Device(){}
@@ -24,6 +26,7 @@ class Device {
 
 class Fridge : public Device {
     public:
+        Fridge(string id) : Device(id) {} //get id used in making this obj to base constructor
         int temperature;
         void showStatus() override {
             cout<<id<<"(Fridge) is "<< (isOn ? "ON" : "OFF")<<" at "<<temperature<<"C"<<endl;
@@ -35,6 +38,7 @@ class Fridge : public Device {
 
 class Light : public Device {
     public:
+        Light(string id) : Device(id) {} //get id used in making this obj to base constructor
         string brightness = "normal"; //low, normal, high, normal is default
         void showStatus() override {
             cout<<id<<"(Light) is "<< (isOn ? "ON" : "OFF")<<" at "<<brightness<<" brightness"<<endl;
@@ -50,22 +54,29 @@ struct User {
 };
 
 //Global Variables
+vector<Device*> devices;
+vector<User> users;
 mutex devMtx;
 mutex userMtx;
 
 //Prototypes
 void mainMenu();
-void simulateThreads();
+void startThreads();
+void simulateUsage(int threadId, int userIndex);
 void deviceManagement();
 void userManagement();
 void deviceControl();
 void concurrencyControl();
 void livenessCheck();
 
+void addUser();
+void makeExample();
+
 int getCh();
 
 //Main
 int main(){
+    makeExample();
     //Main Menu
     mainMenu();
 }
@@ -89,8 +100,7 @@ void mainMenu(){
         }
         
         switch(ch){
-            case 1: 
-                break;
+            case 1: startThreads(); break;
             case 2: deviceManagement(); break;
             case 3: 
                 break;
@@ -100,7 +110,58 @@ void mainMenu(){
     }
 }
 
-//void simulateThreads();
+void startThreads(){
+    if (devices.empty() || users.size() < 3){
+        cout<<"Please ensure at least 3 users and 1 or more devices are added."<<endl;
+        return;
+    }
+
+    cout<<"Starting multiple threads..."<<endl;
+    vector<thread> threads;
+    for (int i = 0; i < 3; i++){
+        threads.emplace_back(simulateUsage, i+1, i);
+    }
+
+    for (auto& t : threads) t.join();
+    cout<<"Simulation done!";
+    return;
+}
+
+void simulateUsage(int threadId, int userId){
+    {//Log in
+        lock_guard<mutex> lock(userMtx); //lockguard user mutex
+        if(userId >= users.size()){ //check if userIndex is out of bounds
+            cout<<"[Thread "<<threadId<<"] Invalid user index."<<endl;
+            return;
+        }
+        
+        users[userId].isLoggedIn = true; //log in user
+        cout<<"[Thread "<<threadId<<"] User "<<users[userId].user<<" logged in."<<endl;
+    }
+    //Use devices
+    for(int i = 0; i < 5; i++){//simulate 5 actions
+        int deviceIndex;
+        if(devices.empty()){
+            cout<<"[Thread "<<threadId<<"] No devices available."<<endl;
+            return;
+        }
+        {
+            lock_guard<mutex> lock(devMtx); //lockguard device mutex in this block
+            deviceIndex = (userId+i) % devices.size(); //get a random device index 
+        }
+        Device* dev = devices[deviceIndex];
+        {
+            lock_guard<mutex> lock(devMtx); //lockguard device mutex in this block
+             cout<<"[Thread "<<threadId<<"] "<<users[userId].user<<" is using device "<<deviceIndex<<": "<<endl; //use device
+        }   
+
+    }
+    
+    //
+
+}
+
+
 void deviceManagement(){
     int ch;
     while(true){
@@ -146,6 +207,49 @@ void deviceManagement(){
 
 // void concurrencyControl();
 // void livenessCheck();
+
+void addUser(){
+    string user;
+    cout<<"Enter username: ";
+    cin>>user;
+
+    for (const auto& u : users){
+        if(u.user == user){
+            cout<<"Username already exists!"<<endl;
+            return;
+        }
+    } 
+
+    User newUser;
+    newUser.user = user;
+    newUser.isLoggedIn = false;
+
+    //add to users vector
+    users.push_back(newUser);
+    cout<<"User "<<user<<" registered successfully!"<<endl;
+}
+
+void makeExample(){
+    //devices sample
+    Fridge* f1 = new Fridge("F1");
+    f1->setTemp(5);
+    devices.push_back(f1);
+
+    Light* l1 = new Light("L1");
+    l1->setBrightness("high");
+    devices.push_back(l1);
+
+    //users sample
+    User u1{"bea",false};
+    User u2{"jane", false};
+    User u3{"kate", false};
+
+    users.push_back(u1);
+    users.push_back(u2);
+    users.push_back(u3);
+
+    cout<<"Examples added."<<endl;
+}
 
 int getCh(){
     int ch;
