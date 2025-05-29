@@ -18,6 +18,7 @@ class Device {//Parent Class of fridge and light
         mutable shared_mutex rwLock; //Read-write lock
         condition_variable_any devStatChanged;
         string id;
+        string type = "Device";
         bool isOn = false;
     public:
         Device(string id) : id(id), isOn(false){}
@@ -38,11 +39,17 @@ class Device {//Parent Class of fridge and light
         virtual string getOn(){
             return this->isOn ? "ON" : "OFF";
         }
+        virtual void toggleOn(){
+            this->isOn ? isOn = false : isOn = true;
+        }
         virtual void waitUntilOn() {
             shared_lock lock(rwLock);
             devStatChanged.wait(lock, [this]() {
                 return isOn;
             });
+        }
+        virtual string getType(){
+            return type;
         }
         virtual void showStatus() = 0;
         virtual ~Device(){}
@@ -51,8 +58,9 @@ class Device {//Parent Class of fridge and light
 class Fridge : public Device {
     protected:
         int temperature;
+        string type = "Fridge";
     public:
-        Fridge(string id) : Device(id) {} //get id used in making this obj to base constructor
+        Fridge(string id) : Device(id) {temperature = 5;} //get id used in making this obj to base constructor
 
         void showStatus() override {
             shared_lock lock(rwLock);
@@ -77,9 +85,10 @@ class Fridge : public Device {
 
 class Light : public Device {
     protected:
-        string brightness = "Mid"; //Low, Mid, High, Mid is default
+        string brightness; //Low, Mid, High, Mid is default
+        string type = "Light";
     public:
-        Light(string id) : Device(id) {} //get id used in making this obj to base constructor
+        Light(string id) : Device(id) {brightness = "Mid";} //get id used in making this obj to base constructor
         
         void showStatus() override {
             shared_lock lock(rwLock);
@@ -97,6 +106,34 @@ class Light : public Device {
         void putBrightness(int lvl){
             setBrightness(lvl);
             cout<<"Turned "<<this->id<<" brightness to "<<this->brightness<<"."<<endl;
+        }
+};
+
+class AirCon : public Device {
+    protected:
+        int temperature;
+        string type = "Air Conditioner";
+    public:
+        AirCon(string id) : Device(id) {temperature = 20;} //get id used in making this obj to base constructor
+
+        void showStatus() override {
+            shared_lock lock(rwLock);
+            cout<<id<<"(Air Conditioner) is "<< (isOn ? "ON" : "OFF")<<" set at "<<temperature<<"\u00B0C"<<endl;
+        }
+
+        int getTemp(){
+            shared_lock lock(rwLock);
+            return this->temperature;
+        }
+
+        void setTemp(int temp){
+            unique_lock lock(rwLock);
+            this->temperature = temp;
+        }
+
+        void putTemp(int temp){
+            setTemp(temp);
+            cout<<"Turned "<<this->id<<" temperature to "<<this->temperature<<"\u00B0C."<<endl;
         }
 };
 
@@ -155,18 +192,24 @@ mt19937 gen(rd());
 //Prototypes
 void mainMenu();
 void startThreads();
-void simulateUsage(int threadId, int userIndex);
+void simulateUsage(int threadId);
 void deviceManagement();
+void addDev();
+void removeDev();
+void listDev();
+void displayDev();
 void userManagement();
 void deviceControl();
 void concurrencyControl();
 void livenessCheck();
+void listUser();
+void removeUser();
 
 string getColor(int threadId);
 void addUser();
 void makeExample();
 
-int getCh();
+int getCh(int max);
 void showLocks();
 
 void flagLock(TrackedMutex& mtx, string name);
@@ -192,12 +235,11 @@ void mainMenu(){
         cout<<"1 - Simulate Multiple Threads"<<endl;
         cout<<"2 - Device Management"<<endl;
         cout<<"3 - User Management"<<endl;
-        cout<<"4 - Device Control"<<endl;
-        cout<<"5 - Concurrency Control"<<endl;
+        cout<<"4 - Concurrency Control"<<endl;
         cout<<"0 - Exit"<<endl;
         cout<<"==============================="<<endl;
         cout<<"Enter Choice: ";
-        ch = getCh();
+        ch = getCh(4);
         if(ch == -1){
             continue;
         }
@@ -206,16 +248,16 @@ void mainMenu(){
         switch(ch){
             case 1: startThreads(); break;
             case 2: deviceManagement(); break;
-            case 3: 
-                break;
-            case 4: 
-                break;
-            case 5:
-                showLocks();
-                break;
+            case 3: userManagement(); break;
+            case 4: showLocks(); break;
             case 0:
+                cout<<"Exiting... \n"<<endl;
+                cout<<"Group 2"<<endl;
+                cout<<"Bea Ganotisi"<<endl;
+                cout<<"Denise Ballano"<<endl;
+                cout<<"Charisse See"<<endl; 
+                cout<<"\n"<<endl;
                 return;
-                break;
         }
     }
 }
@@ -228,8 +270,8 @@ void startThreads(){
 
     cout<<"\033[1;32mStarting multiple threads...\033[0m"<<endl;
     vector<thread> threads;
-    for (int i = 0; i < 3; i++){
-        threads.emplace_back(simulateUsage, i+1, i);
+    for (int i = 1; i <= 3; i++){
+        threads.emplace_back(simulateUsage, i);
     }
 
     for (auto& t : threads) t.join();
@@ -237,12 +279,13 @@ void startThreads(){
     return;
 }
 
-void simulateUsage(int threadId, int userId){
+void simulateUsage(int threadId){
     uniform_int_distribution<> secDist(1,3); //for random (sec)
+    uniform_int_distribution<> userDist(0, (users.size())); //for random (user)
     string color = getColor(threadId);
     // int sec = secDist(gen); //diff delays for each thread
     int sec = 0; //set delays
-    User& user = users[userId];
+    User& user = users[userDist(gen)];
     string name = user.user;
     
     //LOG IN USER
@@ -359,38 +402,220 @@ void deviceManagement(){
         cout<<"0 - Back"<<endl;
         cout<<"==============================="<<endl;
         cout<<"Enter Choice: ";
-        ch = getCh();
+        ch = getCh(3);
         if(ch == -1){
             continue;
         }
+        cout<<"\n"<<endl;
 
-        switch(ch){ //Add choices here
-            case 1: break;
-                //Output:
-                //Enter Device ID: (make sure its unique, or just automatically set an id)
-                //Enter Device Type: (Thermostat, Fridge or Light)
-            case 2: break;
-                //Show device list, make user choose which to remove
-            case 3: break;
-                //Show device list, make user choose which to modify settings, call deviceControl() menu
-            case 0: return; break;
-            default:
+        switch(ch){
+            case 1: addDev(); break;
+            case 2: removeDev(); break;
+            case 3: deviceControl(); break;
+            case 0: return;
+        }
+    }
+}
+void addDev(){
+    int type;
+    string id;
+    cout<<"========= Add Device =========="<<endl;
+    cout<<"Enter Device ID (F1,L1,etc.): ";
+    cin>>id;
+    cout<<"Choose Device Type: "<<endl;
+    cout<<"\t1 - Fridge"<<endl;
+    cout<<"\t2 - Light"<<endl;
+    cout<<"\t3 - Air Conditioner"<<endl;
+    cout<<"Choice: ";
+    cin>>type;
+    cout<<"==============================="<<endl;
+    switch(type){
+        case 1:
+            devices.push_back(new Fridge(id)); 
+            cout<<"Fridge "<<id<<" added successfully!"<<endl;
+            break;
+        case 2: 
+            devices.push_back(new Light(id)); 
+            cout<<"Light "<<id<<" added successfully!"<<endl;
+            break;
+        case 3:
+            devices.push_back(new AirCon(id)); 
+            cout<<"Air Conditioner "<<id<<" added successfully!"<<endl;
+            break;
+        default:
+            cout<<"Error adding device."<<endl;
+    }
+    cout<<"\n"<<endl;
+    return;
+}
+
+void removeDev(){
+    int indx;
+    while(true){
+        listDev();
+        cout<<"0 - Back"<<endl;
+        cout<<"==============================="<<endl;
+        cout<<"Choose device to remove: ";
+        
+        indx = getCh(devices.size());
+        if(indx == 0){
+            cout<<"\n"<<endl;
+            return;
+        }
+        else if(indx == -1)continue;
+        else if(indx <= devices.size() && indx > 0){
+            devices.erase(devices.begin() + (indx-1));
+            cout<<"Sucessfully deleted."<<endl;
+        }
+        else{}
+        cout<<"\n"<<endl;
+        return;
+        
+    }
+}
+
+void listDev(){
+    if(devices.empty()){//if no devices
+        cout<<"\033[1;33mNo devices available.\033[0m"<<endl;
+        return;
+    }
+    int i = 1;
+    for (auto& d : devices) {
+        cout<<i<<" - ";
+        d->showStatus();
+        i++;
+    }
+}
+
+void userManagement(){
+    while(true){
+        cout<<"======= User Management ======="<<endl;
+        cout<<"1 - Register Users"<<endl;
+        cout<<"2 - User List"<<endl;
+        cout<<"3 - Remove Users"<<endl;
+        cout<<"0 - Back"<<endl;
+        cout<<"==============================="<<endl;
+        cout<<"Choice: ";
+        int ch = getCh(3);
+        if(ch == -1){
+            cout<<"\n"<<endl;
+            continue;
+        }
+        switch(ch){
+            case 1: addUser(); break;
+            case 2: 
+                cout<<"\n========= User List ==========="<<endl;
+                listUser();
+                cout<<"===============================\n\n"<<endl; 
                 break;
+            case 3: removeUser(); break;
+            case 0: 
+                cout<<"\n"<<endl;
+                return;
         }
     }
 
 }
-// void userManagement();
-    // ==== User Management ====
-    // Add Users (add username)
-    // User List (show user list)
-    // Remove Users (cant remove user if user is logged in)
-// void deviceControl();
-    // === Device Control ==== 
-    // Turn on
-    // Turn off
-    // Adjust device settings (temp, brightness, etc)
-    // Check device status (call showStatus() of device)
+
+void deviceControl(){
+    int indx;
+    while(true){
+        cout<<"======= Control Device ========"<<endl;
+        listDev();
+        cout<<"0 - Back"<<endl;
+        cout<<"==============================="<<endl;
+        cout<<"Choose device to manage: ";
+        cin>>indx;
+        indx--;
+        if(indx == -1){
+            cout<<"\n"<<endl; 
+            return;
+        }
+        else if(indx >= 0 && indx < devices.size()){
+            cout<<"\n";
+            break;
+        }
+        else{
+            cout<<"Enter a valid number."<<endl;
+            cout<<"\n";
+            continue;
+        }
+    }
+    Device* dev = devices[indx];
+    cout<<"======= Control Device ========"<<endl;
+    if(Fridge* fridge = dynamic_cast<Fridge*>(dev)){
+        fridge->showStatus();
+        cout<<"1 - Turn On/Off"<<endl;
+        cout<<"2 - Set Temp"<<endl;
+        cout<<"0 - Back"<<endl;
+        cout<<"==============================="<<endl;
+        cout<<"Choice: ";
+        int ch = getCh(2);
+        cout<<"\n";
+        cout<<"==============================="<<endl;
+        switch(ch){
+            case 1: fridge->toggleOn(); fridge->showStatus(); break;
+            case 2: 
+                int temp;
+                cout<<"Set Temp to: ";
+                cin>>temp;
+                fridge->putTemp(temp);
+                break;
+            case 0:
+                break;
+        }
+        cout<<"==============================="<<endl;
+    } 
+    else if (Light* light = dynamic_cast<Light*>(dev)){
+        light->showStatus();
+        cout<<"1 - Turn On/Off"<<endl;
+        cout<<"2 - Set Brightness"<<endl;
+        cout<<"0 - Back"<<endl;
+        cout<<"==============================="<<endl;
+        cout<<"Choice: ";
+        int ch = getCh(2);
+        cout<<"\n";
+        cout<<"==============================="<<endl;
+        switch(ch){
+            case 1: light->toggleOn(); light->showStatus(); break;
+            case 2: 
+                int lvl;
+                cout<<"(1 - Low, 2 - Mid, 3 - High)"<<endl;
+                cout<<"Set Brightness to : ";
+                cin>>lvl;
+                cout<<"\n";
+                light->putBrightness(lvl);
+                break;
+            case 0:
+                break;
+        }
+        cout<<"==============================="<<endl;
+    }
+    else if(AirCon* aircon = dynamic_cast<AirCon*>(dev)){
+        aircon->showStatus();
+        cout<<"1 - Turn On/Off"<<endl;
+        cout<<"2 - Set Temp"<<endl;
+        cout<<"0 - Back"<<endl;
+        cout<<"==============================="<<endl;
+        cout<<"Choice: ";
+        int ch = getCh(2);
+        cout<<"\n";
+        cout<<"==============================="<<endl;
+        switch(ch){
+            case 1: aircon->toggleOn(); aircon->showStatus(); break;
+            case 2: 
+                int temp;
+                cout<<"Set Temp to: ";
+                cin>>temp;
+                aircon->putTemp(temp);
+                break;
+            case 0:
+                break;
+        }
+        cout<<"==============================="<<endl;
+    } 
+    cout<<"\n"<<endl;
+}
 
 void showLocks(){
     cout<<"========= Lock Status ========="<<endl;
@@ -403,6 +628,7 @@ void showLocks(){
 
 void addUser(){
     string user;
+    cout<<"\n======== Register User ========"<<endl;
     cout<<"Enter username: ";
     cin>>user;
 
@@ -420,6 +646,42 @@ void addUser(){
     //add to users vector
     users.push_back(newUser);
     cout<<"User "<<user<<" registered successfully!"<<endl;
+    cout<<"===============================\n\n"<<endl;
+}
+
+void listUser(){
+    int i = 1;
+    for (auto& u : users){
+        cout<<i<<" - "<<u.user<<endl;
+        i++;
+    }
+}
+
+void removeUser(){
+    int indx;
+    while(true){
+        cout<<"\n======== Remove User =========="<<endl;
+        listUser();
+        cout<<"0 - Back"<<endl;
+        cout<<"==============================="<<endl;
+        cout<<"Choose user to remove: ";
+        cin>>indx;
+        
+        if(indx < users.size() && indx > 0){
+            users.erase(users.begin() + (indx-1));
+            cout<<"Sucessfully deleted."<<endl;
+            break;
+        }
+        else if(indx == 0){
+            cout<<"\n"<<endl; 
+            return;
+        }
+        else{
+            cout<<"Enter a valid number.\n"<<endl;
+            continue;
+        }
+    }
+    cout<<"\n"<<endl;
 }
 
 void makeExample(){
@@ -433,9 +695,9 @@ void makeExample(){
     devices.push_back(l1);
 
     //users sample
-    User u1{"bea",false};
-    User u2{"jane", false};
-    User u3{"kate", false};
+    User u1{"Bea",false};
+    User u2{"Denise", false};
+    User u3{"Charisse", false};
 
     users.push_back(u1);
     users.push_back(u2);
@@ -453,10 +715,10 @@ string getColor(int num){
     }
 }
 
-int getCh(){
+int getCh(int max){
     int ch;
     cin>>ch;
-    if(cin.fail() || (ch > 5 && ch < 0)){
+    if(cin.fail() || (ch > max || ch < 0)){
         cin.clear();
         cin.ignore(numeric_limits<streamsize>::max(), '\n');
         cout<<"Invalid input. Please choose between the numbers listed."<<endl;
