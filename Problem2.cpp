@@ -220,7 +220,7 @@ int main(){
     SetConsoleOutputCP(CP_UTF8); //for degrees
 
 
-    makeExample();
+    // makeExample();
     //Main Menu
     mainMenu();
 
@@ -280,34 +280,55 @@ void startThreads(){
 }
 
 void simulateUsage(int threadId){
-    uniform_int_distribution<> secDist(1,3); //for random (sec)
-    uniform_int_distribution<> userDist(0, (users.size())); //for random (user)
+    uniform_int_distribution<> secDist(1,2); //for random (sec)
     string color = getColor(threadId);
-    // int sec = secDist(gen); //diff delays for each thread
-    int sec = 0; //set delays
-    User& user = users[userDist(gen)];
-    string name = user.user;
+    int sec = secDist(gen); //diff delays for each thread
+    // int sec = 0; //set delays
+
+    uniform_int_distribution<> userDist(0, ((users.size())-1)); //for random (user)
+    int userId;
+    while(true){
+        lock_guard<mutex> lock(userMtx);
+        userId = userDist(gen);
+        if (userId < 0 || userId >= users.size()){ //check if userIndex is out of bounds
+            lock_guard<recursive_mutex> lock(printMtx);
+            flagLock(printMutex, "Thread "+ to_string(threadId));
+            cout<<color<<"[Thread " << threadId << "]"<<"\033[1;31mInvalid user index.\033[0m"<<endl;
+            flagUnlock(printMutex);
+            continue;
+        } 
+        User& user = users[userId];
+        string name = user.user;
+        if (user.isLoggedIn){
+            lock_guard<recursive_mutex> lock(printMtx);
+            flagLock(printMutex, "Thread "+ to_string(threadId));
+            cout<<color<<"[Thread " << threadId << "]"<<"\033[1;31m "<<name<<" is already logged in.\033[0m"<<endl;
+            flagUnlock(printMutex);
+            continue;
+        }
+        user.isLoggedIn = true; //log in user
+        {
+            flagLock(printMutex, "Thread "+ to_string(threadId));
+            lock_guard<recursive_mutex> lock(printMtx);
+            cout<<color<<"[Thread " << threadId << "] User "<<user.user<<" logged in.\033[0m"<<endl;
+            flagUnlock(printMutex);
+        }
+        
+        flagUnlock(userMutex);
+        break;
+    }
     
     //LOG IN USER
     {
-        scoped_lock lock(printMtx, userMtx); //printMtx makes sure no interleaved output, userMtx makes sure no race conditions
-        flagLock(userMutex, "Thread "+ to_string(threadId));
-        flagLock(printMutex, "Thread "+ to_string(threadId));
-            if (userId < 0 || userId >= static_cast<int>(users.size())){ //check if userIndex is out of bounds
-                cout<<color<<"[Thread " << threadId << "]"<<"\033[1;31mInvalid user index.\033[0m"<<endl;
-                return;
-            }
-            
-            user.isLoggedIn = true; //log in user
+        scoped_lock<recursive_mutex, mutex> lock(printMtx, userMtx); //printMtx makes sure no interleaved output, userMtx makes sure no race conditions
         
-            cout<<color<<"[Thread " << threadId << "] User "<<user.user<<" logged in.\033[0m"<<endl;
-        flagUnlock(userMutex);
-        flagUnlock(printMutex);
     }
+    User& user = users[userId];
+    string name = user.user;
     this_thread::sleep_for(chrono::seconds(sec));
     
     //USE DEVICES
-    for(int i = 0; i < 5; i++){//simulate 5 actions
+    for(int i = 0; i < 3; i++){//simulate 3 actions
         Device* dev = nullptr;
 
         if(devices.empty()){//if no devices
@@ -315,19 +336,25 @@ void simulateUsage(int threadId){
             return;
         }
         {
-            if(devMtx.try_lock()){
-                lock_guard<recursive_mutex> lock(printMtx);
-                flagLock(printMutex, name);
-                    cout<<color<<"[Thread "<< threadId << "]\033[0m Failed to acquire device lock. Retrying later..." << endl;
-                flagUnlock(printMutex);
-                this_thread::sleep_for(chrono::seconds(1));
-                continue;
-            }
-            flagLock(devMutex, name);
-            int deviceIndex = (userId+i) % devices.size(); //get a random device index 
-            dev = devices[deviceIndex];
-            flagUnlock(devMutex);
+            // cout<<color<<"[Thread "<< threadId << "]\033[0m Trying to get lock" << endl;
+            // if(!devMtx.try_lock()){
+            //     lock_guard<recursive_mutex> lock(printMtx);
+            //     flagLock(printMutex, name);
+            //         cout<<color<<"[Thread "<< threadId << "]\033[0m Failed to acquire device lock. Retrying later..." << endl;
+            //     flagUnlock(printMutex);
+            //     this_thread::sleep_for(chrono::seconds(secDist(gen)));
+            //     continue;
+            // }
+            // lock_guard<mutex> lock(devMtx);
+            // flagLock(devMutex, name);
+            
+            // flagUnlock(devMutex);
+            // devMtx.unlock();
         }
+        uniform_int_distribution<> devDist(0, ((devices.size())-1)); //for random (user)
+        int deviceIndex = devDist(gen); //get a random device index 
+        dev = devices[deviceIndex];
+
         {//Print using device
             lock_guard<recursive_mutex> lock(printMtx); //makes sure no interleaved output
             flagLock(printMutex, name);
@@ -336,33 +363,39 @@ void simulateUsage(int threadId){
         }
         this_thread::sleep_for(chrono::seconds(sec));
         {//Turn on device
-            lock_guard<recursive_mutex> lock(printMtx); //makes sure no interleaved output
+            scoped_lock<mutex, recursive_mutex> lock(devMtx, printMtx); //makes sure no interleaved output
+            flagLock(devMutex, name);
             flagLock(printMutex, name);
                 uniform_int_distribution<> dist(0,1); //for random (on or off)
 
                 cout<<color<<"[Thread " << threadId << "]\033[0m ";
                 dev->turnOn(dist(gen)); //user turns on device
             flagUnlock(printMutex);
+            flagUnlock(devMutex);
         }
         this_thread::sleep_for(chrono::seconds(sec));
         //Change device settings
         if(Fridge* fridge = dynamic_cast<Fridge*>(dev)){
-            lock_guard<recursive_mutex> lock(printMtx); //makes sure no interleaved output
+            scoped_lock<mutex, recursive_mutex> lock(devMtx, printMtx); //makes sure no interleaved output
+            flagLock(devMutex, name);
             flagLock(printMutex, name);
                 uniform_int_distribution<> dist(-5,5); //for random (temp)
 
                 cout<<color<<"[Thread " << threadId << "]\033[0m ";
                 fridge->putTemp(dist(gen)); //Varying temps
             flagUnlock(printMutex);
+            flagUnlock(devMutex);
         } 
         else if (Light* light = dynamic_cast<Light*>(dev)){
-            lock_guard<recursive_mutex> lock(printMtx); //makes sure no interleaved output
+            scoped_lock<mutex, recursive_mutex> lock(devMtx, printMtx); //makes sure no interleaved output
+            flagLock(devMutex, name);
             flagLock(printMutex, name);
                 uniform_int_distribution<> dist(0,3); //for random (temp)
 
                 cout<<color<<"[Thread " << threadId << "]\033[0m ";
                 light->putBrightness(dist(gen));
             flagUnlock(printMutex);
+            flagUnlock(devMutex);
         }
         this_thread::sleep_for(chrono::seconds(sec));
 
@@ -378,8 +411,9 @@ void simulateUsage(int threadId){
     
     //LOG OUT USER
     {
-        lock_guard<mutex> lock(userMtx); //lockguard user mutex
+        scoped_lock<mutex, recursive_mutex> lock(userMtx, printMtx); //lockguard user mutex
         flagLock(userMutex, name);
+        flagLock(printMutex, name);
             if (userId < 0 || userId >= static_cast<int>(users.size())){ //check if userIndex is out of bounds
                 cout<<"\033[1;31m[Thread " << threadId << "] Invalid user index.\033[0m"<<endl;
                 return;
@@ -387,6 +421,7 @@ void simulateUsage(int threadId){
             
             user.isLoggedIn = false; //logs out user
             cout<<"\033[1;31m[Thread " << threadId << "] User "<<user.user<<" logged out.\033[0m"<<endl;
+        flagUnlock(printMutex);
         flagUnlock(userMutex);
     }
 
@@ -667,14 +702,13 @@ void removeUser(){
         cout<<"Choose user to remove: ";
         cin>>indx;
         
-        if(indx < users.size() && indx > 0){
+        if(indx == 0){
+            cout<<"\n"<<endl; 
+            return;
+        }else if(indx <= users.size() && indx > 0){
             users.erase(users.begin() + (indx-1));
             cout<<"Sucessfully deleted."<<endl;
             break;
-        }
-        else if(indx == 0){
-            cout<<"\n"<<endl; 
-            return;
         }
         else{
             cout<<"Enter a valid number.\n"<<endl;
