@@ -107,7 +107,6 @@ struct User {
 
 class TrackedMutex{
     private:
-        mutex mtx;
         atomic<bool> isLocked = false;
         string name;
         string owner;
@@ -118,22 +117,12 @@ class TrackedMutex{
         void flagLock(string str){
             isLocked = true;
             owner = str;
-            cout<<name<<" locked by "<< owner<<"!"<<endl;
         }
         void flagUnlock(){
             isLocked = false;
-            cout<<name<<" unlocked by "<< owner<<"!"<<endl;
             owner = "None";
         }
-        // bool try_lock(){
-        //     if(mtx.try_lock()){
-        //         isLocked = true;
-        //         owner = this_thread::get_id();
-        //         return true;
-        //     }
-        //     return false;
-        // }
-        
+
         //read onlys
         bool checkLock() const{ 
             return isLocked;
@@ -144,18 +133,20 @@ class TrackedMutex{
         string getName() const{
             return name;
         }
-        mutex& getMutex(){
-            return mtx;
-        }
+
 };
 
 //Global Variables
 vector<Device*> devices;
 vector<User> users;
 
-TrackedMutex devMtx("Device Mutex");
-TrackedMutex userMtx("User Mutex");
-TrackedMutex printMtx("Print Mutex");
+mutex devMtx;
+mutex userMtx;
+recursive_mutex printMtx;
+
+TrackedMutex devMutex("Device Mutex");
+TrackedMutex userMutex("User Mutex");
+TrackedMutex printMutex("Print Mutex");
 
 //for generating unique randoms for each thread
 random_device rd;
@@ -176,6 +167,10 @@ void addUser();
 void makeExample();
 
 int getCh();
+void showLocks();
+
+void flagLock(TrackedMutex& mtx, string name);
+void flagUnlock(TrackedMutex& mtx);
 
 //Main
 int main(){
@@ -206,13 +201,17 @@ void mainMenu(){
         if(ch == -1){
             continue;
         }
-        
+        cout<<"\n"<<endl;
+
         switch(ch){
             case 1: startThreads(); break;
             case 2: deviceManagement(); break;
             case 3: 
                 break;
             case 4: 
+                break;
+            case 5:
+                showLocks();
                 break;
             case 0:
                 return;
@@ -227,7 +226,7 @@ void startThreads(){
         return;
     }
 
-    cout<<"Starting multiple threads..."<<endl;
+    cout<<"\033[1;32mStarting multiple threads...\033[0m"<<endl;
     vector<thread> threads;
     for (int i = 0; i < 3; i++){
         threads.emplace_back(simulateUsage, i+1, i);
@@ -241,15 +240,16 @@ void startThreads(){
 void simulateUsage(int threadId, int userId){
     uniform_int_distribution<> secDist(1,3); //for random (sec)
     string color = getColor(threadId);
-    int sec = secDist(gen); //diff delays for each thread
-    //int sec = 3; //set delays
+    // int sec = secDist(gen); //diff delays for each thread
+    int sec = 0; //set delays
     User& user = users[userId];
+    string name = user.user;
     
     //LOG IN USER
     {
         scoped_lock lock(printMtx, userMtx); //printMtx makes sure no interleaved output, userMtx makes sure no race conditions
-        userMtx.flagLock("Thread "+ threadId);
-        printMtx.flagLock("Thread "+ threadId);
+        flagLock(userMutex, "Thread "+ to_string(threadId));
+        flagLock(printMutex, "Thread "+ to_string(threadId));
             if (userId < 0 || userId >= static_cast<int>(users.size())){ //check if userIndex is out of bounds
                 cout<<color<<"[Thread " << threadId << "]"<<"\033[1;31mInvalid user index.\033[0m"<<endl;
                 return;
@@ -258,8 +258,8 @@ void simulateUsage(int threadId, int userId){
             user.isLoggedIn = true; //log in user
         
             cout<<color<<"[Thread " << threadId << "] User "<<user.user<<" logged in.\033[0m"<<endl;
-        userMtx.flagUnlock();
-        printMtx.flagUnlock();
+        flagUnlock(userMutex);
+        flagUnlock(printMutex);
     }
     this_thread::sleep_for(chrono::seconds(sec));
     
@@ -272,71 +272,71 @@ void simulateUsage(int threadId, int userId){
             return;
         }
         {
-            mutex& mtx = devMtx.getMutex();
-            if(mtx.try_lock()){
-                lock_guard<mutex> lock(printMtx.getMutex());
-                printMtx.flagLock(user.user);
-                    cout<<color<<"[Thread "<< threadId << "]\033[0mFailed to acquire device lock. Retrying later..." << endl;
-                printMtx.flagUnlock();
+            if(devMtx.try_lock()){
+                lock_guard<recursive_mutex> lock(printMtx);
+                flagLock(printMutex, name);
+                    cout<<color<<"[Thread "<< threadId << "]\033[0m Failed to acquire device lock. Retrying later..." << endl;
+                flagUnlock(printMutex);
                 this_thread::sleep_for(chrono::seconds(1));
                 continue;
             }
-            devMtx.flagLock(user.user);
+            flagLock(devMutex, name);
             int deviceIndex = (userId+i) % devices.size(); //get a random device index 
             dev = devices[deviceIndex];
+            flagUnlock(devMutex);
         }
         {//Print using device
-            lock_guard<mutex> lock(printMtx.getMutex()); //makes sure no interleaved output
-            printMtx.flagLock(user.user);
+            lock_guard<recursive_mutex> lock(printMtx); //makes sure no interleaved output
+            flagLock(printMutex, name);
                 cout<<color<<"[Thread " << threadId << "]\033[0m "<<users[userId].user<<" is using device "<<dev->getId()<<"."<<endl; //User is using device
-            printMtx.flagUnlock();
+            flagUnlock(printMutex);
         }
         this_thread::sleep_for(chrono::seconds(sec));
         {//Turn on device
-            lock_guard<mutex> lock(printMtx.getMutex()); //makes sure no interleaved output
-            printMtx.flagLock(user.user);
+            lock_guard<recursive_mutex> lock(printMtx); //makes sure no interleaved output
+            flagLock(printMutex, name);
                 uniform_int_distribution<> dist(0,1); //for random (on or off)
 
                 cout<<color<<"[Thread " << threadId << "]\033[0m ";
                 dev->turnOn(dist(gen)); //user turns on device
-            printMtx.flagUnlock();
+            flagUnlock(printMutex);
         }
         this_thread::sleep_for(chrono::seconds(sec));
         //Change device settings
         if(Fridge* fridge = dynamic_cast<Fridge*>(dev)){
-            lock_guard<mutex> lock(printMtx.getMutex()); //makes sure no interleaved output
-            printMtx.flagLock(user.user);
+            lock_guard<recursive_mutex> lock(printMtx); //makes sure no interleaved output
+            flagLock(printMutex, name);
                 uniform_int_distribution<> dist(-5,5); //for random (temp)
 
                 cout<<color<<"[Thread " << threadId << "]\033[0m ";
                 fridge->putTemp(dist(gen)); //Varying temps
-            printMtx.flagUnlock();
+            flagUnlock(printMutex);
         } 
         else if (Light* light = dynamic_cast<Light*>(dev)){
-            lock_guard<mutex> lock(printMtx.getMutex()); //makes sure no interleaved output
-            printMtx.flagLock(user.user);
+            lock_guard<recursive_mutex> lock(printMtx); //makes sure no interleaved output
+            flagLock(printMutex, name);
                 uniform_int_distribution<> dist(0,3); //for random (temp)
 
                 cout<<color<<"[Thread " << threadId << "]\033[0m ";
                 light->putBrightness(dist(gen));
-            printMtx.flagUnlock();
+            flagUnlock(printMutex);
         }
         this_thread::sleep_for(chrono::seconds(sec));
 
         {//Print device status
-            lock_guard<mutex> lock(printMtx.getMutex()); //makes sure no interleaved output
-            printMtx.flagLock(user.user);
+            lock_guard<recursive_mutex> lock(printMtx); //makes sure no interleaved output
+            flagLock(printMutex, name);
                 cout<<color<<"[Thread " << threadId << "]\033[0m ";
                 dev->showStatus(); //show dev status
-            printMtx.flagUnlock();
+            flagUnlock(printMutex);
         }
         this_thread::sleep_for(chrono::seconds(sec));
     }
     
     //LOG OUT USER
     {
-        lock_guard<mutex> lock(userMtx.getMutex()); //lockguard user mutex
-        userMtx.flagLock(user.user);
+        lock_guard<mutex> lock(userMtx); //lockguard user mutex
+        flagLock(userMutex, name);
             if (userId < 0 || userId >= static_cast<int>(users.size())){ //check if userIndex is out of bounds
                 cout<<"\033[1;31m[Thread " << threadId << "] Invalid user index.\033[0m"<<endl;
                 return;
@@ -344,11 +344,10 @@ void simulateUsage(int threadId, int userId){
             
             user.isLoggedIn = false; //logs out user
             cout<<"\033[1;31m[Thread " << threadId << "] User "<<user.user<<" logged out.\033[0m"<<endl;
-        userMtx.flagUnlock();
+        flagUnlock(userMutex);
     }
 
 }
-
 
 void deviceManagement(){
     int ch;
@@ -393,18 +392,13 @@ void deviceManagement(){
     // Adjust device settings (temp, brightness, etc)
     // Check device status (call showStatus() of device)
 
-
-// void concurrencyControl(){
-//     cout<<"Displaying lock status"
-// }
-// void livenessCheck();
-
 void showLocks(){
     cout<<"========= Lock Status ========="<<endl;
-    cout<<devMtx.getName()<<": "<<(devMtx.checkLock() ? "Locked by "+ devMtx.getOwner() : "Unlocked")<<endl;
-    cout<<userMtx.getName()<<": "<<(userMtx.checkLock() ? "Locked by "+ userMtx.getOwner() : "Unlocked")<<endl;
-    cout<<printMtx.getName()<<": "<<(printMtx.checkLock() ? "Locked by "+ printMtx.getOwner() : "Unlocked")<<endl;
+    cout<<devMutex.getName()<<": "<<(devMutex.checkLock() ? "Locked by "+ devMutex.getOwner() : "Unlocked")<<endl;
+    cout<<userMutex.getName()<<": "<<(userMutex.checkLock() ? "Locked by "+ userMutex.getOwner() : "Unlocked")<<endl;
+    cout<<printMutex.getName()<<": "<<(printMutex.checkLock() ? "Locked by "+ printMutex.getOwner() : "Unlocked")<<endl;
     cout<<"==============================="<<endl;
+    cout<<"\n"<<endl;
 }
 
 void addUser(){
@@ -469,4 +463,18 @@ int getCh(){
         return -1;
     }
     return ch;
+}
+
+void flagLock(TrackedMutex& mtx, string name){
+    lock_guard<recursive_mutex> lock(printMtx);
+    mtx.flagLock(name);
+    cout<<"\033[30m"<<mtx.getName()<<" locked by "<< mtx.getOwner()<<"!\033[0m"<<endl;
+    return;
+}
+
+void flagUnlock(TrackedMutex& mtx){
+    lock_guard<recursive_mutex> lock(printMtx);
+    mtx.flagUnlock();
+    cout<<"\033[37m"<<mtx.getName()<<" unlocked!\033[0m"<<endl;
+    return;
 }
