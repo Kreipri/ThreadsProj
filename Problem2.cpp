@@ -444,8 +444,8 @@ void makeExample(){
     cout<<"Examples added."<<endl;
 }
 
-string getColor(int threadId){
-    switch(threadId){
+string getColor(int num){
+    switch(num){
         case 1: return "\033[1;34m"; // Blue
         case 2: return "\033[1;35m"; // Magenta
         case 3: return "\033[1;36m"; // Cyan
@@ -475,6 +475,6 @@ void flagLock(TrackedMutex& mtx, string name){
 void flagUnlock(TrackedMutex& mtx){
     lock_guard<recursive_mutex> lock(printMtx);
     mtx.flagUnlock();
-    cout<<"\033[37m"<<mtx.getName()<<" unlocked!\033[0m"<<endl;
+    cout<<"\033[90m"<<mtx.getName()<<" unlocked!\033[0m"<<endl;
     return;
 }
