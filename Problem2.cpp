@@ -4,6 +4,7 @@
 #include <chrono>
 #include <vector>
 #include <random>
+#include <stdlib.h>
 
 using namespace std;
 
@@ -17,8 +18,16 @@ class Device {
             this->id = id;
             isOn = false;
         }
+        virtual string getId(){
+            return this->id;
+        }
         virtual void turnOn(bool b){
+            if(isOn == b){
+                cout<<"\033[38;5;208m"<<id<<" is already "<<(isOn ? "ON" : "OFF")<<"\033[0m"<<endl;
+                return;
+            }
             isOn = b;
+            cout<<"\033[1;33m"<<id<<" is turned "<<(isOn ? "ON" : "OFF")<<"\033[0m"<<endl;
         }
         virtual void showStatus() = 0;
         virtual ~Device(){}
@@ -58,6 +67,7 @@ vector<Device*> devices;
 vector<User> users;
 mutex devMtx;
 mutex userMtx;
+mutex printMtx;
 
 //Prototypes
 void mainMenu();
@@ -69,6 +79,7 @@ void deviceControl();
 void concurrencyControl();
 void livenessCheck();
 
+string getColor(int threadId);
 void addUser();
 void makeExample();
 
@@ -95,7 +106,7 @@ void mainMenu(){
         cout<<"==============================="<<endl;
         cout<<"Enter Choice: ";
         ch = getCh();
-        if(ch == NULL){
+        if(ch == -1){
             continue;
         }
         
@@ -123,44 +134,80 @@ void startThreads(){
     }
 
     for (auto& t : threads) t.join();
-    cout<<"Simulation done!";
+    cout<<"Simulation done!\n\n"<<endl;
     return;
 }
 
 void simulateUsage(int threadId, int userId){
-    {//Log in
-        lock_guard<mutex> lock(userMtx); //lockguard user mutex
-        if(userId >= users.size()){ //check if userIndex is out of bounds
-            cout<<"[Thread "<<threadId<<"] Invalid user index."<<endl;
+    string color = getColor(threadId);
+    int sec = userId % 5; //diff delays for each thread
+    //int sec = 3; //set delays
+    User user;
+    
+
+    //LOG IN USER
+    {
+        scoped_lock lock(printMtx, userMtx); //printMtx makes sure no interleaved output, userMtx makes sure no race conditions
+        if (userId < 0 || userId >= static_cast<int>(users.size())){ //check if userIndex is out of bounds
+            cout<<color<<"[Thread " << threadId << "]"<<"\033[1;31mInvalid user index.\033[0m"<<endl;
             return;
         }
+        user = users[userId];
         
-        users[userId].isLoggedIn = true; //log in user
-        cout<<"[Thread "<<threadId<<"] User "<<users[userId].user<<" logged in."<<endl;
+        user.isLoggedIn = true; //log in user
+    
+        cout<<color<<"[Thread " << threadId << "] User "<<user.user<<" logged in.\033[0m"<<endl;
     }
-    //Use devices
+    this_thread::sleep_for(chrono::seconds(sec));
+    
+    //USE DEVICES
     for(int i = 0; i < 5; i++){//simulate 5 actions
         int deviceIndex;
-        if(devices.empty()){
-            cout<<"[Thread "<<threadId<<"] No devices available."<<endl;
+        if(devices.empty()){//if no devices
+            cout<<color<<"[Thread " << threadId << "]\033[0mNo devices available."<<endl;
             return;
         }
+        Device* dev = nullptr;
         {
             lock_guard<mutex> lock(devMtx); //lockguard device mutex in this block
             deviceIndex = (userId+i) % devices.size(); //get a random device index 
-        }
-        Device* dev = devices[deviceIndex];
-        {
-            lock_guard<mutex> lock(devMtx); //lockguard device mutex in this block
-            cout<<"[Thread "<<threadId<<"] "<<users[userId].user<<" is using device "<<deviceIndex<<"."<<endl; //User is using device
-            dev->turnOn(true); //user turns on device
-            dev->showStatus(); //show dev status
-        }   
 
-        this_thread::sleep_for(chrono::milliseconds(500));
+            dev = devices[deviceIndex];
+        }
+
+        {
+            lock_guard<mutex> lock(printMtx); //makes sure no interleaved output
+            cout<<color<<"[Thread " << threadId << "]\033[0m "<<users[userId].user<<" is using device "<<dev->getId()<<"."<<endl; //User is using device
+        }
+        this_thread::sleep_for(chrono::seconds(sec));
+
+        {
+            lock_guard<mutex> lock(printMtx); //makes sure no interleaved output
+            cout<<color<<"[Thread " << threadId << "]\033[0m ";
+            dev->turnOn(true); //user turns on device
+        }
+        this_thread::sleep_for(chrono::seconds(sec));
+
+        {
+            lock_guard<mutex> lock(printMtx); //makes sure no interleaved output
+            cout<<color<<"[Thread " << threadId << "]\033[0m ";
+            dev->showStatus(); //show dev status
+        }
+        this_thread::sleep_for(chrono::seconds(sec));
     }
     
-    //
+    //LOG OUT USER
+    {
+        lock_guard<mutex> lock(userMtx); //lockguard user mutex
+
+        if (userId < 0 || userId >= static_cast<int>(users.size())){ //check if userIndex is out of bounds
+            cout<<"\033[1;31m[Thread " << threadId << "] Invalid user index.\033[0m"<<endl;
+            return;
+        }
+        
+        user.isLoggedIn = false; //logs out user
+        cout<<"\033[1;32m[Thread " << threadId << "] User "<<user.user<<" logged out.\033[0m"<<endl;
+    }
 
 }
 
@@ -176,7 +223,7 @@ void deviceManagement(){
         cout<<"==============================="<<endl;
         cout<<"Enter Choice: ";
         ch = getCh();
-        if(ch == NULL){
+        if(ch == -1){
             continue;
         }
 
@@ -255,14 +302,23 @@ void makeExample(){
     cout<<"Examples added."<<endl;
 }
 
+string getColor(int threadId){
+    switch(threadId){
+        case 1: return "\033[1;34m"; // Blue
+        case 2: return "\033[1;35m"; // Magenta
+        case 3: return "\033[1;36m"; // Cyan
+        default: return "\033[1;37m"; // White (default)
+    }
+}
+
 int getCh(){
     int ch;
     cin>>ch;
-    if(cin.fail() || (ch < 5 && ch > 0)){
+    if(cin.fail() || (ch > 5 && ch < 0)){
         cin.clear();
         cin.ignore(numeric_limits<streamsize>::max(), '\n');
         cout<<"Invalid input. Please choose between the numbers listed."<<endl;
-        return NULL;
+        return -1;
     }
     return ch;
 }
