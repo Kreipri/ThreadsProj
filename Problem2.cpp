@@ -335,22 +335,6 @@ void simulateUsage(int threadId){
             cout<<color<<"[Thread "<< threadId << "]\033[0mNo devices available."<<endl;
             return;
         }
-        {
-            // cout<<color<<"[Thread "<< threadId << "]\033[0m Trying to get lock" << endl;
-            // if(!devMtx.try_lock()){
-            //     lock_guard<recursive_mutex> lock(printMtx);
-            //     flagLock(printMutex, name);
-            //         cout<<color<<"[Thread "<< threadId << "]\033[0m Failed to acquire device lock. Retrying later..." << endl;
-            //     flagUnlock(printMutex);
-            //     this_thread::sleep_for(chrono::seconds(secDist(gen)));
-            //     continue;
-            // }
-            // lock_guard<mutex> lock(devMtx);
-            // flagLock(devMutex, name);
-            
-            // flagUnlock(devMutex);
-            // devMtx.unlock();
-        }
         uniform_int_distribution<> devDist(0, ((devices.size())-1)); //for random (user)
         int deviceIndex = devDist(gen); //get a random device index 
         dev = devices[deviceIndex];
