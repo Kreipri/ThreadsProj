@@ -152,9 +152,12 @@ void simulateUsage(int threadId, int userId){
         Device* dev = devices[deviceIndex];
         {
             lock_guard<mutex> lock(devMtx); //lockguard device mutex in this block
-             cout<<"[Thread "<<threadId<<"] "<<users[userId].user<<" is using device "<<deviceIndex<<": "<<endl; //use device
+            cout<<"[Thread "<<threadId<<"] "<<users[userId].user<<" is using device "<<deviceIndex<<"."<<endl; //User is using device
+            dev->turnOn(true); //user turns on device
+            dev->showStatus(); //show dev status
         }   
 
+        this_thread::sleep_for(chrono::milliseconds(500));
     }
     
     //
@@ -188,6 +191,7 @@ void deviceManagement(){
                 //Show device list, make user choose which to modify settings, call deviceControl() menu
             case 0: return; break;
             default:
+                break;
         }
     }
 
