@@ -5,11 +5,12 @@
 #include <vector>
 #include <random>
 #include <stdlib.h>
+#include <windows.h>
 
 using namespace std;
 
 //Class/Strucs
-class Device {
+class Device {//Parent Class of fridge and light
     protected:
         string id;
         bool isOn = false;
@@ -29,31 +30,57 @@ class Device {
             isOn = b;
             cout<<"\033[1;33m"<<id<<" is turned "<<(isOn ? "ON" : "OFF")<<"\033[0m"<<endl;
         }
+        virtual string getOn(){
+            return this->isOn ? "ON" : "OFF";
+        }
         virtual void showStatus() = 0;
         virtual ~Device(){}
 };
 
 class Fridge : public Device {
+    protected:
+        int temperature;
     public:
         Fridge(string id) : Device(id) {} //get id used in making this obj to base constructor
-        int temperature;
+
         void showStatus() override {
-            cout<<id<<"(Fridge) is "<< (isOn ? "ON" : "OFF")<<" at "<<temperature<<"C"<<endl;
+            cout<<id<<"(Fridge) is "<< (isOn ? "ON" : "OFF")<<" set at "<<temperature<<"\u00B0C"<<endl;
         }
+
+        int getTemp(){
+            return this->temperature;
+        }
+
         void setTemp(int temp){
             this->temperature = temp;
+        }
+
+        void putTemp(int temp){
+            this->temperature = temp;
+            cout<<"Turned "<<this->id<<" temperature to "<<this->temperature<<"\u00B0C."<<endl;
         }
 };
 
 class Light : public Device {
+    protected:
+        string brightness = "Mid"; //Low, Mid, High, Mid is default
     public:
         Light(string id) : Device(id) {} //get id used in making this obj to base constructor
-        string brightness = "normal"; //low, normal, high, normal is default
+        
         void showStatus() override {
-            cout<<id<<"(Light) is "<< (isOn ? "ON" : "OFF")<<" at "<<brightness<<" brightness"<<endl;
+            cout<<id<<"(Light) is "<< (isOn ? "ON" : "OFF")<<" set at "<<brightness<<" brightness"<<endl;
         }
-        void setBrightness(string lvl){
-            this->brightness = lvl;
+        void setBrightness(int lvl){
+            switch(lvl){
+                case 1: this->brightness = "Low"; break;
+                case 2: this->brightness = "Mid"; break;
+                case 3: this->brightness = "High"; break;
+            }
+            
+        }
+        void putBrightness(int lvl){
+            setBrightness(lvl);
+            cout<<"Turned "<<this->id<<" brightness to "<<this->brightness<<"."<<endl;
         }
 };
 
@@ -68,6 +95,10 @@ vector<User> users;
 mutex devMtx;
 mutex userMtx;
 mutex printMtx;
+
+//for generating unique randoms for each thread
+random_device rd;
+mt19937 gen(rd());
 
 //Prototypes
 void mainMenu();
@@ -87,6 +118,9 @@ int getCh();
 
 //Main
 int main(){
+    SetConsoleOutputCP(CP_UTF8); //for degrees
+
+
     makeExample();
     //Main Menu
     mainMenu();
@@ -139,8 +173,10 @@ void startThreads(){
 }
 
 void simulateUsage(int threadId, int userId){
+    uniform_int_distribution<> secDist(3,7); //for random (sec)
+
     string color = getColor(threadId);
-    int sec = userId % 5; //diff delays for each thread
+    int sec = secDist(gen); //diff delays for each thread
     //int sec = 3; //set delays
     User user;
     
@@ -168,27 +204,46 @@ void simulateUsage(int threadId, int userId){
             return;
         }
         Device* dev = nullptr;
-        {
+        {//Get dev
             lock_guard<mutex> lock(devMtx); //lockguard device mutex in this block
             deviceIndex = (userId+i) % devices.size(); //get a random device index 
 
             dev = devices[deviceIndex];
         }
 
-        {
+        {//Print using device
             lock_guard<mutex> lock(printMtx); //makes sure no interleaved output
             cout<<color<<"[Thread " << threadId << "]\033[0m "<<users[userId].user<<" is using device "<<dev->getId()<<"."<<endl; //User is using device
         }
         this_thread::sleep_for(chrono::seconds(sec));
 
-        {
+        {//Turn on device
             lock_guard<mutex> lock(printMtx); //makes sure no interleaved output
+            uniform_int_distribution<> dist(0,1); //for random (on or off)
+
             cout<<color<<"[Thread " << threadId << "]\033[0m ";
-            dev->turnOn(true); //user turns on device
+            dev->turnOn(dist(gen)); //user turns on device
         }
         this_thread::sleep_for(chrono::seconds(sec));
 
-        {
+        //Change device settings
+        if(Fridge* fridge = dynamic_cast<Fridge*>(dev)){
+            lock_guard<mutex> lock(printMtx); //makes sure no interleaved output
+            uniform_int_distribution<> dist(-5,5); //for random (temp)
+
+            cout<<color<<"[Thread " << threadId << "]\033[0m ";
+            fridge->putTemp(dist(gen)); //Varying temps
+        } 
+        else if (Light* light = dynamic_cast<Light*>(dev)){
+            lock_guard<mutex> lock(printMtx); //makes sure no interleaved output
+            uniform_int_distribution<> dist(0,3); //for random (temp)
+
+            cout<<color<<"[Thread " << threadId << "]\033[0m ";
+            light->putBrightness(dist(gen));
+        }
+        this_thread::sleep_for(chrono::seconds(sec));
+
+        {//Print device status
             lock_guard<mutex> lock(printMtx); //makes sure no interleaved output
             cout<<color<<"[Thread " << threadId << "]\033[0m ";
             dev->showStatus(); //show dev status
@@ -206,7 +261,7 @@ void simulateUsage(int threadId, int userId){
         }
         
         user.isLoggedIn = false; //logs out user
-        cout<<"\033[1;32m[Thread " << threadId << "] User "<<user.user<<" logged out.\033[0m"<<endl;
+        cout<<"\033[1;31m[Thread " << threadId << "] User "<<user.user<<" logged out.\033[0m"<<endl;
     }
 
 }
@@ -287,7 +342,7 @@ void makeExample(){
     devices.push_back(f1);
 
     Light* l1 = new Light("L1");
-    l1->setBrightness("high");
+    l1->setBrightness(3);
     devices.push_back(l1);
 
     //users sample
