@@ -15,7 +15,7 @@ using namespace std;
 //struct
 struct Event
 {
-    string eventID;   //unique
+    string eventID;   
     string eventName;
     string eventDate;
     bool isActive = false;
@@ -23,7 +23,7 @@ struct Event
 
 struct User 
 {
-    string userID;  //unique
+    string userID;  
     string userName;
     string userPass;
     bool isLoggedin = false;
@@ -31,7 +31,7 @@ struct User
 
 struct Ticket 
 {
-    string ticketID;    //unique
+    string ticketID;    
     string eventID, eventName, eventDate;
     string userID, userName;
     bool isCanceled = false;
