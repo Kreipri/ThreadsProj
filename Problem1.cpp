@@ -53,6 +53,7 @@ class eventManagement
             {
                 if (events[i].eventID == newEvent.eventID)
                 {
+                    cout << "Error. Event ID is taken.\n";
                     return false;
                 }
             }
